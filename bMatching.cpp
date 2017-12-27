@@ -32,6 +32,8 @@ const int LACK_OF_VERTICES = -1;
 const int FIRST_VERTEX_IN_ADJACENT_LIST = 0;
 const bool LOCK_SUITORS_QUEUE = true;
 
+
+/*
 unsigned int bvalue(unsigned int method, unsigned long node_id) {
 
     switch (method) {
@@ -50,6 +52,15 @@ unsigned int bvalue(unsigned int method, unsigned long node_id) {
 
     }
 
+}
+*/
+
+unsigned int bvalue(unsigned int method, unsigned long node_id) {
+switch (method) {
+default: return (2 * node_id + method) % 10;
+case 0: return 4;
+case 1: return 7;
+} 
 }
 
 
@@ -491,9 +502,8 @@ void tymczasowy_sort_sekwencyjny() {
 
 
 //TO DO!
-//wczytywanie
-//testy, duzo testow
-//bvalue z pliku
+//poprawic dla b[v] == 0
+//wyczyscic plik do debugowania
 int main(int argc, char **argv)
 {
 	map<int,int> renamedVertex;
@@ -505,22 +515,22 @@ int main(int argc, char **argv)
 
 	//cout<<"tutaj\n";
 
-	renameAndCountEdges(plikGrafu, renamedVertex, vertexAdjacentEdges);
-	createAdjacentLists(plikGrafu, renamedVertex, vertexAdjacentEdges);	
+	renameAndCountEdges(plikGrafu, renamedVertex, vertexAdjacentEdges);//tu? rename
+	createAdjacentLists(plikGrafu, renamedVertex, vertexAdjacentEdges);//rename poprawny tu	
 	allocateProtection();
 	allocateControlConteners();
 
 
 	
-	tymczasowy_sort_sekwencyjny();
+	tymczasowy_sort_sekwencyjny();//nie zrzuca pamieci? raczej robia to wierzcholki b[v] == 0
 	//drukujAdjacentList();
 
 
-	cout<<findValueOfbMatching(1, 1, originalNodesIds)/2<<endl;
+	cout<<findValueOfbMatching(1, limit_b, originalNodesIds)/2<<endl;
 
 	int maximazedSum;	
 	for(int generator = 0; generator <= limit_b; generator++) {
-		maximazedSum = findValueOfbMatching(numberOfVertices, generator, originalNodesIds)/2;
+		//maximazedSum = findValueOfbMatching(numberOfVertices, generator, originalNodesIds)/2;
 		//cout<<maximazedSum<<endl;
 	}
 	
