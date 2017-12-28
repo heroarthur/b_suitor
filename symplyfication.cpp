@@ -135,6 +135,9 @@ vector<std::mutex> suitorsProtection;
 vector<std::mutex> sendProposalsProtection;
 
 
+vector<int> edges;
+
+
 bool neighboursExhausted(int vertex) {
 	int pos = posInAdjList[vertex];
 	return pos == adjList[vertex].size();
@@ -220,7 +223,6 @@ void updateAnnuledVertex(int annuledVertex, int vertexNoLongerSuitet) {
 	s1 = sendProposals[annuledVertex].size();
 	sendProposals[annuledVertex].erase(vertexNoLongerSuitet);
 	s2 = sendProposals[annuledVertex].size();
-	//if(s1 == s2) cout<<"NOE ZESZ KOWA !!! \n";
 	sendProposalsProtection[annuledVertex].unlock();
 }
 
@@ -248,10 +250,12 @@ void makeProposes(int vertex) {
 				createdProposal = true;
 				proposes++;
 			}
+			if (createdProposal) {
+				addToProposals(vertex, partner->neighbour);
+			}
 			suitorsProtection[partner->neighbour].unlock();
 			if (createdProposal) {
 				updateAnnuledVertex(annuledVertex, partner->neighbour);
-				addToProposals(vertex, partner->neighbour);
 			}
 		}		
 	}
@@ -271,7 +275,6 @@ int getNextVertex() {
 }
 
 void processVertex(int vertex) {
-	//bool haveNextVertex = true;
 	while(vertex != LACK_OF_VERTICES) {
 		makeProposes(vertex);
 		vertex = getNextVertex();
