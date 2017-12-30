@@ -14,16 +14,22 @@
 #include <limits>
 
 #define EXAUSTED nullptr
-#define NOT_ANNULED -1
+
 
 
 
 using namespace std;
 
+/*
+ULEPSZENIA
+-prawdopodobnie nie trzeba trzymac w kazdym wierzcholku zbioru do kogo wyslal propozycje, wystarczy tylko ich liczba
+-HEAVY-LIGHT edge
+*/
 
 
 typedef long double uint64;
 typedef unsigned int uint;
+
 
 const int LACK_OF_VERTICES = -1;
 const int FIRST_VERTEX_IN_ADJACENT_LIST = 0;
@@ -31,6 +37,47 @@ const bool LOCK_SUITORS_QUEUE = true;
 const int NO_MORE_OFFER = 2000000;
 const int NO_HEAVY_LIGHT_EDGE = 0;
 
+/*
+unsigned int bvalue(unsigned int method, unsigned long node_id) {
+    switch (method) {
+    case 0: return 1;
+    default: switch (node_id) {
+        case 0: return 2;
+        case 1: return 2;
+        default: return 1;
+        }
+    }
+}
+unsigned int bvalue(unsigned int method, unsigned long node_id) {
+switch (method) {
+default: return (2 * node_id + method) % 10;
+case 0: return 4;
+case 1: return 7;
+} 
+}
+unsigned int bvalue(unsigned int method, unsigned long node_id) {
+	return 1;
+}
+unsigned int bvalue(unsigned int method, unsigned long node_id) {
+switch (method) {
+default: return (2 * node_id + method) % 10;
+case 0: return 4;
+case 1: return 7;
+} 
+}
+unsigned int bvalue(unsigned int method, unsigned long node_id) {
+switch (method) {
+default: return (2 * node_id + method) % 10;
+case 0: return 4;
+case 1: return 7;
+} 
+}
+
+
+unsigned int bvalue(unsigned int method, unsigned long node_id) {
+	return 1 + (((node_id+1)%5 + 1) * node_id + method+2) % 500;
+}
+*/
 
 
 
@@ -41,7 +88,6 @@ case 0: return 4;
 case 1: return 7;
 } 
 }
-
 
 
 
@@ -101,8 +147,7 @@ vector<int> posInAdjList;
 
 
 vector<SuitorsQueue> suitors;
-//vector< unordered_set<int> > sendProposals;
-vector<int> sendProposals;
+vector< unordered_set<int> > sendProposals;
 vector<int> bValue;
 
 vector<std::mutex> suitorsProtection;
@@ -110,8 +155,8 @@ vector<std::mutex> sendProposalsProtection;
 
 
 vector<int> edges;
-vector<int> partialSortUpperBound;
-vector<int> pValue;
+vector<uint> partialSortUpperBound;
+vector<uint> pValue; //batches size of partial sort
 
 bool neighboursExhausted(int vertex) {
 	int pos = posInAdjList[vertex];
@@ -133,6 +178,7 @@ bool isEligiblePartner(int u, const Edge& adjPartner, bool lockSuitorsQueue) {
 	Edge newOffer = Edge{u, originalNodesIds[u], adjPartner.size};
 	if(lockSuitorsQueue) suitorsProtection[adjPartner.neighbour].lock();
 	lowestOffer = getLowestOffer(adjPartner.neighbour);
+	//cout<<"lowestOffer originalNei: "<<lowestOffer.originalNeighbour<<endl;
 	bool isEligible = edgeGreater(newOffer, lowestOffer);
 	if(lockSuitorsQueue) suitorsProtection[adjPartner.neighbour].unlock();
 	return isEligible;
@@ -140,12 +186,15 @@ bool isEligiblePartner(int u, const Edge& adjPartner, bool lockSuitorsQueue) {
 
 
 void sortNextBatch(int vertex) {
+	//cout<<"zaczynam sortowac "<<vertex<<endl;
 	int start = partialSortUpperBound[vertex];
 	int end = start + pValue[vertex];
 	auto potentialLast = adjList[vertex].begin()+end;
 	auto last = (potentialLast < adjList[vertex].end()) ? potentialLast : adjList[vertex].end()-1;
+	//cout<<"start,end "<<start<<","<<end<<endl;
 	partial_sort (adjList[vertex].begin()+start, last, adjList[vertex].end(), edgeGreater);
 	partialSortUpperBound[vertex] += pValue[vertex];
+	//cout<<"skonczylem sortowac "<<vertex<<endl;
 }
 
 
@@ -167,55 +216,63 @@ Edge* findEligiblePartner(int vertex) {
 int currentProposalsNumber(int vertex) {
 	int proposals;
 	sendProposalsProtection[vertex].lock();
-	proposals = sendProposals[vertex];
+	proposals = sendProposals[vertex].size();
 	sendProposalsProtection[vertex].unlock();
 	return proposals;
 }
 
 
-int addToSuitorsQueue(int u, int edgeSize, int p) {
+bool addToSuitorsQueue(int& annuledVertex,int u, int edgeSize, int p) {
+	//cout<<"wkladam original "<<originalNodesIds[u]<<endl;
 	Edge e{u, originalNodesIds[u], edgeSize};
-	int annuledVertex = NOT_ANNULED;
+	bool proposalAnnuled = false;
 
 	if(suitors[p].size() >= bValue[p]) {
 		annuledVertex = suitors[p].top().neighbour;
 		suitors[p].pop();
+		proposalAnnuled = true;
+	}
+	else {
+		//cout<<originalNodesIds[u]<<" become suitor of "<<originalNodesIds[p]<<" edgeSize "<<edgeSize<<endl;
 	}
 	suitors[p].push(e);
-	return annuledVertex;
+	return proposalAnnuled;
 }
 
 
-int makeUsuitorOfP(int u, int edgeSize, int p) {
-	int annuledVertex = addToSuitorsQueue(u, edgeSize, p);
-	return annuledVertex;
+bool makeUsuitorOfP(int& annuledVertex, int u, int edgeSize, int p) {
+	return addToSuitorsQueue(annuledVertex, u, edgeSize, p);
 }
 
 
-void updateAnnuledVertex(int annuledVertex, int vertexNoLongerSuitet) {
-	if(annuledVertex == NOT_ANNULED) return;
+void updateAnnuledVertex(const bool& proposalAnnuled, const int& annuledVertex, int vertexNoLongerSuitet) {
+	if(!proposalAnnuled) return;
 	
 	lock_verticesToRepeat.lock();
 	verticesToRepeat.insert(annuledVertex);
 	lock_verticesToRepeat.unlock();
 
 	sendProposalsProtection[annuledVertex].lock();
-	sendProposals[annuledVertex]--;
+	int s1, s2;
+	s1 = sendProposals[annuledVertex].size();
+	sendProposals[annuledVertex].erase(vertexNoLongerSuitet);
+	s2 = sendProposals[annuledVertex].size();
 	sendProposalsProtection[annuledVertex].unlock();
 }
 
 
 void addToProposals(int vertex, int partner) {
 	sendProposalsProtection[vertex].lock();
-	sendProposals[vertex]++;
+	sendProposals[vertex].insert(partner);
 	sendProposalsProtection[vertex].unlock();
 }
 
 
 void makeProposes(int vertex) {
-	int proposes = currentProposalsNumber(vertex);
+	int proposes = currentProposalsNumber(vertex); //uzywaj size mapy
 	Edge* partner;
 	int annuledVertex;
+	bool proposalAnnuled;
 	bool createdProposal;
 	
 	while (proposes < bValue[vertex] && !neighboursExhausted(vertex)) {
@@ -224,17 +281,16 @@ void makeProposes(int vertex) {
 		if (partner != EXAUSTED) {
 			suitorsProtection[partner->neighbour].lock();
 			if(isEligiblePartner(vertex, *partner, !LOCK_SUITORS_QUEUE)) {
-				annuledVertex = makeUsuitorOfP(vertex, partner->size, partner->neighbour);
+				proposalAnnuled = makeUsuitorOfP(annuledVertex, vertex, partner->size, partner->neighbour);
 				createdProposal = true;
 				proposes++;
 			}
 			if (createdProposal) {
-				//addToProposals(vertex, partner->neighbour);
+				addToProposals(vertex, partner->neighbour);
 			}
 			suitorsProtection[partner->neighbour].unlock();
 			if (createdProposal) {
-				addToProposals(vertex, partner->neighbour);
-				updateAnnuledVertex(annuledVertex, partner->neighbour);
+				updateAnnuledVertex(proposalAnnuled, annuledVertex, partner->neighbour);
 			}
 		}		
 	}
@@ -247,11 +303,12 @@ bool nextPartnerIsHeavy(int v, int heavyEdgePivot) {
 
 
 void makeProposesFirstTime(int vertex, int heavyEdgePivot) {
-	int proposes = currentProposalsNumber(vertex);
+	int proposes = currentProposalsNumber(vertex); //uzywaj size mapy
 	Edge* partner;
 	int annuledVertex;
 	bool createdProposal;
 	int pos;
+	bool proposalAnnuled;
 	
 	while (proposes < bValue[vertex] && !neighboursExhausted(vertex)) {
 		
@@ -267,17 +324,16 @@ void makeProposesFirstTime(int vertex, int heavyEdgePivot) {
 		if (partner != EXAUSTED) {
 			suitorsProtection[partner->neighbour].lock();
 			if(isEligiblePartner(vertex, *partner, !LOCK_SUITORS_QUEUE)) {
-				annuledVertex = makeUsuitorOfP(vertex, partner->size, partner->neighbour);
+				proposalAnnuled = makeUsuitorOfP(annuledVertex, vertex, partner->size, partner->neighbour);
 				createdProposal = true;
 				proposes++;
 			}
 			if (createdProposal) {
-				//addToProposals(vertex, partner->neighbour);
+				addToProposals(vertex, partner->neighbour);
 			}
 			suitorsProtection[partner->neighbour].unlock();
 			if (createdProposal) {
-				addToProposals(vertex, partner->neighbour);
-				updateAnnuledVertex(annuledVertex, partner->neighbour);
+				updateAnnuledVertex(proposalAnnuled, annuledVertex, partner->neighbour);
 			}
 		}		
 	}
@@ -285,29 +341,32 @@ void makeProposesFirstTime(int vertex, int heavyEdgePivot) {
 
 
 
-int getNextVertex() {
-	int vertex;
+int getNextVertex(bool& haveNextVertex) {
+	int vertex = 0;
+	haveNextVertex = false;
 	lock_Q.lock();
-		if(!Q.empty()) {
-			vertex = Q.front();
-			Q.pop();
-		}
-		else vertex = LACK_OF_VERTICES;
-		lock_Q.unlock();
+	if(!Q.empty()) {
+		vertex = Q.front();
+		Q.pop();
+		haveNextVertex = true;
+	}
+	lock_Q.unlock();
 	return vertex;	
 }
 
 void processVertex(int vertex) {
-	while(vertex != LACK_OF_VERTICES) {
+	bool haveNextVertex = true;
+	while(haveNextVertex) {
 		makeProposes(vertex);
-		vertex = getNextVertex();
+		vertex = getNextVertex(haveNextVertex);
 	}
 }
 
 void processVertexFirstTime(int vertex, int heavyEdgePivot) {
-	while(vertex != LACK_OF_VERTICES) {
+	bool haveNextVertex = true;
+	while(haveNextVertex) {
 		makeProposesFirstTime(vertex, heavyEdgePivot);
-		vertex = getNextVertex();
+		vertex = getNextVertex(haveNextVertex);
 	}
 }
 
@@ -330,9 +389,10 @@ void join_all(vector<std::thread>& v)
 void process_Q(int heavyEdgePivot) {
 	vector<std::thread> threads;
 	int nextVertex;
+	bool haveNextVertex;
 	for(int i = 1; i <= liczbaWatkow; i++) {
-		nextVertex = getNextVertex();
-		if (nextVertex == LACK_OF_VERTICES) break;
+		nextVertex = getNextVertex(haveNextVertex);
+		if (!haveNextVertex) break;
 		if(i == liczbaWatkow) {
 			if(heavyEdgePivot > 0) processVertexFirstTime(nextVertex, heavyEdgePivot);
 			else processVertex(nextVertex);//process vertex yourself
@@ -367,12 +427,13 @@ void setBPvalues(int generator, vector<int>& originalNodesIds) {
 void clearSuitorsAssociatedSetsAndQueues() {
 	for (SuitorsQueue& queue: suitors)
    		while(!queue.empty()) queue.pop();
-	for(vector<int>::iterator it = sendProposals.begin(); it != sendProposals.end(); ++it) {
-		*(it) = 0;
-	}	
+
+	for (auto& u_set: sendProposals)
+   		u_set.clear();	
+	
 	for(int i = 0; i < posInAdjList.size(); i++) 
 		posInAdjList[i] = FIRST_VERTEX_IN_ADJACENT_LIST;
-	}
+}
 
 
 void moveAllVerticesTo_Q() {
@@ -445,10 +506,12 @@ int findEdgeAverage() {
 
 
 int heavyEdgesPivotVal(int k) {
-	uint64 init = 0;
-	uint64 B = accumulate(bValue.begin(),bValue.end(),init);
+	int init = 0;
+	long long int B = accumulate(bValue.begin(),bValue.end(),init);
+	//cout<<"SUMA "<<B<<"  size "<<edges.size()<<endl;
+	//cout<<"rozmiar edges "<<edges.size()<<" wierzcholkow "<<originalNodesIds.size()<<endl;
 	while(k > 0) {
-		uint64 dif = B;
+		int dif = B;
 		if(edges.begin()+k*B < edges.end()) {
 			nth_element (edges.begin(), edges.begin()+k*B, edges.end());
 			return *(edges.begin()+k*B);	
@@ -505,6 +568,7 @@ void getValuesFromLine(int& v1, int& v2, int& size, string& line) {
 		else tmp += line[i];	
 	}
 	size = atoi(tmp.c_str());
+	//cout<<"uzyskane wartosci: "<<v1<<" "<<v2<<" "<<size<<endl;
 }
 
 
@@ -528,13 +592,18 @@ void renameAndCountEdges(string fileName, map<int,int>& renamedVertex, vector<in
 		}
 		graphFile.close();
 	}
+	
+	for(int i = 0; i < vertexAdjacentEdges.size(); i++) {
+		//cout<<"ilosc krawedzi "<<i<<" (oryginalnie "<<originalNodesIds[i]<<" ):"<<vertexAdjacentEdges[i]<<endl;
+		//cout<<i<<" (oryginalnie "<<originalNodesIds[i]<<endl;		
+	}	
 }
 
 
 void allocateAdjacentLists(vector<int>& vertexAdjacentEdges) {
 	adjList.resize(vertexAdjacentEdges.size(), vector<Edge> (0));
 	for(int i = 0; i < vertexAdjacentEdges.size(); i++) {
-		adjList[i].resize(vertexAdjacentEdges[i]);
+		adjList[i].resize(vertexAdjacentEdges[i], Edge {0,0,0});
 	}
 }
 
@@ -589,7 +658,7 @@ void allocateControlConteners() {
 	bValue.resize(numberOfVertices, 0);
 	suitors.resize(numberOfVertices);
 	posInAdjList.resize(numberOfVertices, 0);
-	sendProposals.resize(numberOfVertices, 0);
+	sendProposals.resize(numberOfVertices, unordered_set<int>());
 	partialSortUpperBound.resize(numberOfVertices, 0);
 	pValue.resize(numberOfVertices, 0);
 }
@@ -619,7 +688,9 @@ void drukujAdjacentList() {
 
 
 
-
+//TO DO!
+//poprawic dla b[v] == 0
+//wyczyscic plik do debugowania
 int main(int argc, char **argv)
 {
 	map<int,int> renamedVertex;
@@ -633,13 +704,25 @@ int main(int argc, char **argv)
 	renameAndCountEdges(plikGrafu, renamedVertex, vertexAdjacentEdges);//tu? rename
 	createAdjacentLists(plikGrafu, renamedVertex, vertexAdjacentEdges, edges);//rename poprawny tu	
 	allocateProtection();
-	cout<<"koncze czytac, zaczynam alokowac \n";
 	allocateControlConteners();
 	cout<<"konczy wczytywac i alokowac \n";
 
+	cout<<"zaczynam sortowac\n";
+	//tymczasowy_sort_sekwencyjny();//nie zrzuca pamieci? raczej robia to wierzcholki b[v] == 0
+	cout<<"skonczylem sortowac\n";
+	//drukujAdjacentList();
+
+	//cout<<"average "<<findEdgeAverage()<<endl;
+	//cout<<findValueOfbMatching(1, limit_b, originalNodesIds)/2<<endl;
+	/*for(int k = 1; k < 6; k++) {
+		cout<<"k = "<<k<<" pivot "<<heavyEdgesPivotVal(2)<<endl;
+	}*/
+
 	
 	int maximazedSum;
+	cout<<"zaczyna liczyc pivot \n";
 	int universalEdgePivot = findUniversalEdgePivot();
+	
 	cout<<"universalEdgePivot: "<<universalEdgePivot<<endl;
 	for(int generator = 0; generator <= limit_b; generator++) {
 		maximazedSum = findValueOfbMatching(numberOfVertices, generator, originalNodesIds, universalEdgePivot)/2;
