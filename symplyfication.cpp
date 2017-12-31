@@ -39,12 +39,12 @@ unsigned int bvalue(unsigned int method, unsigned long node_id) {
     }
 }
 */
+
 unsigned int bvalue(unsigned int method, unsigned long node_id) {
     if(method<15)
         return method*10+1;
     return (2 * node_id + method) % 100;
 }
-
 
 struct Edge
 {
@@ -90,7 +90,7 @@ string plikGrafu;
 uint32_t limit_b;
 
 vector<uint32_t> originalNodesIds;
-uint32_t numberOfVertices;
+map<uint32_t,uint32_t> renamedVertex;
 
 queue<uint32_t> Q;
 unordered_set<uint32_t> verticesToRepeat;
@@ -213,7 +213,7 @@ void addToProposals(uint32_t vertex, uint32_t partner) {
 
 
 void makeProposes(uint32_t vertex) {
-    uint32_t proposes = currentProposalsNumber(vertex); //uzywaj size mapy
+    uint32_t proposes = currentProposalsNumber(vertex);
     Edge* partner;
     uint32_t annuledVertex;
     bool proposalAnnuled;
@@ -432,7 +432,7 @@ uint32_t findEdgeAverage() {
 
 uint32_t findUniversalEdgePivot() {
     uint32_t k = 5;
-    uint32_t d = 8;
+    uint32_t d = 5;
     uint32_t c = 2;
     uint32_t B = (uint32_t)adjList.size()*k;
     auto universalPivot = edges.begin()+B*k;
@@ -449,7 +449,7 @@ uint32_t findUniversalEdgePivot() {
 }
 
 
-void addEdgeCount(uint32_t readVertex, map<uint32_t,uint32_t>& renamedVertex, vector<uint32_t>& vertexAdjacentEdges) {
+void addEdgeCount(uint32_t readVertex, vector<uint32_t>& vertexAdjacentEdges) {
     auto it = renamedVertex.find(readVertex);
     if (it != renamedVertex.end()) {
         vertexAdjacentEdges[it->second]++;
@@ -460,6 +460,8 @@ void addEdgeCount(uint32_t readVertex, map<uint32_t,uint32_t>& renamedVertex, ve
         vertexAdjacentEdges.emplace_back(1);
     }
 }
+
+
 
 
 void getValuesFromLine( const string& line, uint32_t& v1, uint32_t& v2, uint32_t& size) {
@@ -477,52 +479,40 @@ void getValuesFromLine( const string& line, uint32_t& v1, uint32_t& v2, uint32_t
 }
 
 
-void renameAndCountEdges(const string& fileName, map<uint32_t,uint32_t>& renamedVertex, vector<uint32_t>& vertexAdjacentEdges) {
-    string line;
-    numberOfEdges = 0;
+void addEdgeToAdjacentList2(const uint32_t& vertex, const uint32_t& neighbour, const uint32_t& size) {
+	adjList[vertex].emplace_back(Edge{neighbour, originalNodesIds[neighbour], size});
+}
 
-    ifstream graphFile (fileName);
-    uint32_t v1, v2, size;
-    if (graphFile.is_open())
-    {
-        while ( getline (graphFile,line) )
-        {
-            if(line[0] == '#') continue;
-            getValuesFromLine(line, v1, v2, size);
-            numberOfEdges++;
-            addEdgeCount(v1, renamedVertex, vertexAdjacentEdges);
-            addEdgeCount(v2, renamedVertex, vertexAdjacentEdges);
-        }
-        graphFile.close();
+uint32_t getNormalizedVertex(const uint32_t& readVertex) {
+	auto it = renamedVertex.find(readVertex);
+	uint32_t normV;
+	if (it == renamedVertex.end()) {
+		normV = (uint32_t)renamedVertex.size();
+        renamedVertex.insert ( pair<uint32_t,uint32_t>(readVertex, normV) );
+        originalNodesIds.emplace_back(readVertex);
+        adjList.emplace_back(vector<Edge> (0));
+		return normV;
     }
+	return it->second;
 }
 
 
-void allocateAdjacentLists(vector<uint32_t>& vertexAdjacentEdges) {
-    adjList.resize(vertexAdjacentEdges.size(), vector<Edge> (0));
-    for(uint32_t i = 0; i < vertexAdjacentEdges.size(); i++) {
-        adjList[i].resize(vertexAdjacentEdges[i], Edge {0,0,0});
-    }
+void addEdgesToAdjList2(const uint32_t& readVertex1, const uint32_t& readVertex2, const uint32_t& size) {
+	uint32_t normV1 = getNormalizedVertex(readVertex1);
+	uint32_t normV2 = getNormalizedVertex(readVertex2);
+	addEdgeToAdjacentList2(normV1 , normV2, size);
+	addEdgeToAdjacentList2(normV2 , normV1, size);
 }
 
 
-void addEdgeToAdjacentList(uint32_t vertex, uint32_t neighbour, uint32_t size, vector<uint32_t>& vertexAdjacentEdges) {
-    uint32_t pos = vertexAdjacentEdges[vertex];
-    vertexAdjacentEdges[vertex]--;
-    adjList[vertex][pos-1].neighbour = neighbour;
-    adjList[vertex][pos-1].originalNeighbour = originalNodesIds[neighbour];
-    adjList[vertex][pos-1].size = size;
-}
+void buildGraphFromFile(const string& fileName, vector<uint32_t>& edges) {
+	string line;
 
-
-void createAdjacentLists(string fileName, map<uint32_t,uint32_t>& renamedVertex, vector<uint32_t>& vertexAdjacentEdges, vector<uint32_t>& edges) {
-    string line;
     ifstream graphFile (fileName);
     uint32_t v1, v2, size;
     uint32_t renamed_v1, renamed_v2;
     uint32_t edgeCount = 0;
     edges.resize(numberOfEdges);
-    allocateAdjacentLists(vertexAdjacentEdges);
 
     if (graphFile.is_open())
     {
@@ -530,17 +520,13 @@ void createAdjacentLists(string fileName, map<uint32_t,uint32_t>& renamedVertex,
         {
             if(line[0] == '#') continue;
             getValuesFromLine(line, v1, v2, size);
-            renamed_v1 = renamedVertex[v1];
-            renamed_v2 = renamedVertex[v2];
-            edges[edgeCount++] = size;
-
-            addEdgeToAdjacentList(renamed_v1, renamed_v2, size, vertexAdjacentEdges);
-            addEdgeToAdjacentList(renamed_v2, renamed_v1, size, vertexAdjacentEdges);
+			edges.emplace_back(size);
+			addEdgesToAdjList2(v1, v2, size);	
         }
         graphFile.close();
     }
-    vertexAdjacentEdges.clear();
 }
+
 
 
 void allocateProtection() {
@@ -563,20 +549,20 @@ void allocateControlConteners() {
 
 int main(int argc, char **argv)
 {
-    map<uint32_t,uint32_t> renamedVertex;
-    vector<uint32_t> vertexAdjacentEdges;
+
 
     liczbaWatkow = (uint32_t)atoi(argv[1]);
     plikGrafu = argv[2];
     limit_b = (uint32_t)atoi(argv[3]);
 
-    renameAndCountEdges(plikGrafu, renamedVertex, vertexAdjacentEdges);
-    createAdjacentLists(plikGrafu, renamedVertex, vertexAdjacentEdges, edges);
+
+	buildGraphFromFile(plikGrafu, edges);
     allocateProtection();
     allocateControlConteners();
 
     uint32_t maximazedSum;
     uint32_t universalEdgePivot = findUniversalEdgePivot();
+	edges.clear();
 
     for(uint32_t generator = 0; generator <= limit_b; generator++) {
         maximazedSum = findValueOfbMatching(generator, universalEdgePivot)/2;
